@@ -224,6 +224,66 @@ By default, delete the current one."
   (interactive (list (completing-read "Toggl project for this headline: " toggl-projects nil t))) ; TODO: dry!
   (org-set-property "toggl-project" project))
 
+(defun hh:mm-to-seconds (str)
+  (let* ((lst (split-string str ":"))
+	 (hour (car lst))
+	 (minute (cadr lst)))
+    (+ (* (string-to-number hour) 3600)
+       (* (string-to-number minute) 60))))
+
+(defun toggl-get-local-timezone (&optional zone)
+  (let* ((timezone (car (current-time-zone)))
+	 (hour (/ (abs timezone) 3600))
+	 (minutes (/ (mod (abs timezone) 3600) 60)))
+    (if (>= 0 timezone)
+	(format "-%02d:%02d" hour minutes)
+      (format "+%02d:%02d" hour minutes))))
+
+(defun org-toggl-create-entry (element &optional show-message)
+  "Creates an entry in Toggl when element is a :CLOCK: entry. Just
+make sure the timezone on the current machine and the timezone on your
+Toggl profile are the same. It will proceed only if element is a
+closed and inactive clock entry"
+  (when (and (equal (org-element-type element) 'clock)
+             (equal (org-element-property :status element) 'closed)
+             (equal (org-element-property
+                     :type (org-element-property :value element))
+                    'inactive-range))
+    (let* ((timestamp (org-element-property :value element))
+           (description (nth 4 (org-heading-components))) ;; Finds the heading that contains the clock element.
+	   (duration (hh:mm-to-seconds (org-element-property :duration element)))
+           (start (format "%d-%02d-%02dT%02d:%02d:00%s"
+                          (org-element-property :year-start timestamp)
+                          (org-element-property :month-start timestamp)
+                          (org-element-property :day-start timestamp)
+                          (org-element-property :hour-start timestamp)
+                          (org-element-property :minute-start timestamp)
+			  (toggl-get-local-timezone)))
+	   (project (org-entry-get (point) "toggl-project" org-toggl-inherit-toggl-properties))
+	   (pid (toggl-get-pid project)))
+
+      (toggl-request-post
+       "time_entries"
+       (json-encode `(("time_entry" .
+      		       (("description" . ,description)
+      			("start" . ,start)
+      			("duration" . ,duration)
+      			("pid" . ,pid)
+      			("created_with" . "mbork's Emacs toggl client")))))
+       nil
+       (cl-function
+      	(lambda (&key data &allow-other-keys)
+      	  (setq toggl-current-time-entry data)
+      	  (when show-message (message "Toggl time entry created."))))
+       (cl-function
+      	(lambda (&key error-thrown &allow-other-keys)
+      	  (when show-message (message "Creating time entry failed because %s" error-thrown))))))))
+
+(defun org-toggl-create-entry-at-point ()
+  "Creates an entry in Toggl when pointer is on a closed :CLOCK: entry."
+  (interactive)
+  (org-toggl-create-entry (org-element-at-point) t))
+
 (define-minor-mode org-toggl-integration-mode
   "Toggle a (global) minor mode for Org/Toggl integration.
 When on, clocking in and out starts and stops Toggl time entries
