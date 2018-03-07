@@ -36,6 +36,11 @@
   :type 'string
   :group 'toggl)
 
+(defcustom toggl-bad-project-ids '()
+  "A list of project id's to remove from toggl-project-list"
+  :type 'list
+  :group 'toggl)
+
 (defcustom toggl-default-timeout 20
   "Default timeout for HTTP requests."
   :type 'integer
@@ -122,11 +127,12 @@ its id.")
    (cl-function
     (lambda (&key data &allow-other-keys)
       (setq toggl-projects
-	    (mapcar (lambda (project)
-		      (cons (substring-no-properties (alist-get 'name project))
-			    (alist-get 'id project)))
-		    (alist-get 'projects (alist-get 'data data))))
-      (message "Toggl projects successfully downloaded.")))
+	    (seq-remove (lambda (elm) (member (cdr elm) toggl-bad-project-ids))
+			(mapcar (lambda (project)
+				  (cons (substring-no-properties (alist-get 'name project))
+					(alist-get 'id project)))
+				(alist-get 'projects (alist-get 'data data)))))
+	    (message "Toggl projects successfully downloaded.")))
    (cl-function
     (lambda (&key error-thrown &allow-other-keys)
       (message "Fetching projects failed because %s" error-thrown)))))
